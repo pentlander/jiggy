@@ -1,9 +1,10 @@
 package com.pentlander.jiggy;
 
-import java.io.File;
+import com.pentlander.jiggy.ModuleDep.ModuleName;
+import com.pentlander.jiggy.ModuleDep.ModuleName.Automatic;
+import com.pentlander.jiggy.ModuleDep.ModuleName.NonModular;
 import java.io.IOException;
 import java.io.UncheckedIOException;
-import java.lang.System.Logger;
 import java.lang.module.ModuleDescriptor;
 import java.util.ArrayList;
 import java.util.List;
@@ -14,7 +15,6 @@ import org.eclipse.aether.RepositorySystemSession;
 import org.eclipse.aether.artifact.DefaultArtifact;
 import org.eclipse.aether.collection.CollectRequest;
 import org.eclipse.aether.graph.Dependency;
-import org.eclipse.aether.impl.LocalRepositoryProvider;
 import org.eclipse.aether.repository.LocalRepository;
 import org.eclipse.aether.repository.RemoteRepository;
 import org.eclipse.aether.resolution.DependencyRequest;
@@ -28,45 +28,49 @@ public class DependencyResolver {
   private final RepositorySystemSupplier repoSystemSupplier = new RepositorySystemSupplier();
   private final LocalRepository localRepo = new LocalRepository("local-repo");
 
-  public List<ModuleDep> resolve(DependencyCoordinate depCoordinate) {
-    var artifact = new DefaultArtifact(depCoordinate.groupId(), depCoordinate.artifactId(), "jar", depCoordinate.version());
+  public ModuleDep resolve(DependencyCoordinate depCoordinate) {
+    var resolvingArtifact = new DefaultArtifact(depCoordinate.groupId(), depCoordinate.artifactId(), "jar", depCoordinate.version());
     var repoSystem = newRepoSystem();
     var session = newSession(repoSystem);
 
-    var dependency = new Dependency(artifact, null);
+    var dependency = new Dependency(resolvingArtifact, null);
     var collectRequest = new CollectRequest(dependency, repos);
     var dependencyRequest = new DependencyRequest(collectRequest, null);
     try {
       var moduleDeps = new ArrayList<ModuleDep>();
       var dependencyResult = repoSystem.resolveDependencies(session, dependencyRequest);
       for (var artifactResult : dependencyResult.getArtifactResults()) {
-        var art = artifactResult.getArtifact();
-        System.out.println(art.getArtifactId());
-        var file = art.getFile();
+        var artifact = artifactResult.getArtifact();
+        var file = artifact.getFile();
         try (var jar = new JarFile(file)) {
           var moduleName = moduleName(jar);
-          if (moduleName == null) {
+          if (moduleName instanceof NonModular) {
             System.out.println("Not a modular jar");
           }
-          moduleDeps.add(new ModuleDep(moduleName, file));
+
+          var coordinate = new DependencyCoordinate(
+              artifact.getGroupId(),
+              artifact.getArtifactId(),
+              artifact.getVersion());
+          moduleDeps.add(new ModuleDep(coordinate, moduleName, file));
         }
       }
-      System.out.println();
-      return moduleDeps;
+
+      var resolvedModuleDep = moduleDeps.getFirst();
+      var deps = moduleDeps.size() > 1 ? moduleDeps.subList(1, moduleDeps.size()) : List.<ModuleDep>of();
+      return new ModuleDep(depCoordinate, resolvedModuleDep.moduleName(), resolvedModuleDep.jarFile(), deps);
     } catch (IOException | DependencyResolutionException e) {
       System.err.println(e);
-      return List.of();
+      throw new RuntimeException(e);
     }
   }
 
-  public record ModuleDep(String moduleName, File jarFile) {}
-
-  private static String moduleName(JarFile jar) {
+  private static ModuleName moduleName(JarFile jar) {
     var moduleInfoEntry = jar.getJarEntry("module-info.class");
     if (moduleInfoEntry != null) {
       try {
         var modDescriptor = ModuleDescriptor.read(jar.getInputStream(moduleInfoEntry));
-        return modDescriptor.name();
+        return new ModuleName.Explicit(modDescriptor.name());
       } catch (IOException e) {
         throw new UncheckedIOException(e);
       }
@@ -75,9 +79,9 @@ public class DependencyResolver {
     try {
       var manifest = jar.getManifest();
       if (manifest == null) {
-        return null;
+        return new NonModular();
       }
-      return manifest.getMainAttributes().getValue("Automatic-Module-Name");
+      return new Automatic(manifest.getMainAttributes().getValue("Automatic-Module-Name"));
     } catch (IOException e) {
       throw new UncheckedIOException(e);
     }

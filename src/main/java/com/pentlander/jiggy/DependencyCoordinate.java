@@ -1,16 +1,30 @@
 package com.pentlander.jiggy;
 
+import com.fasterxml.jackson.annotation.JsonCreator;
+import com.fasterxml.jackson.annotation.JsonValue;
+
 public record DependencyCoordinate(String groupId, String artifactId, String version) {
-  static DependencyCoordinate from(String coordinates) {
+  @JsonCreator
+  public static DependencyCoordinate from(String coordinates) {
     var coordParts = coordinates.split(":");
-    if (coordParts.length != 3) {
-      throw new IllegalArgumentException("Expected 3 parts, found: " + coordParts.length);
+    if (coordParts.length < 2) {
+      throw new IllegalArgumentException("Expected at least 2 parts, found: " + coordParts.length);
     }
-    return new DependencyCoordinate(coordParts[0], coordParts[1], coordParts[2]);
+
+    var version = coordParts.length == 3 ? coordParts[2] : null;
+    return new DependencyCoordinate(coordParts[0], coordParts[1], version);
   }
 
+  @JsonValue
   @Override
   public String toString() {
-    return String.join(":", groupId, artifactId, version);
+    if (version != null) {
+      return String.join(":", groupId, artifactId, version );
+    }
+    return String.join(":", groupId, artifactId);
+  }
+
+  public DependencyCoordinate versionless() {
+    return new DependencyCoordinate(groupId, artifactId, null);
   }
 }
