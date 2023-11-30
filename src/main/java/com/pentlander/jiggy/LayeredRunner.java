@@ -14,16 +14,24 @@ public class LayeredRunner {
   private final ModuleLayer baseLayer = ModuleLayer.boot();
   private final ClassLoader classLoader = ClassLoader.getSystemClassLoader();
 
-  void run(BuildConfig.MainConfig mainConfig, Path explodedModulePath, Collection<DependencyInfo> deps) {
+  void run(BuildConfig.MainConfig mainConfig, Path modulePath, Collection<DependencyInfo> deps) {
     var parentLayers = deps.stream().map(DependencyInfo::moduleDep).map(this::newModuleLayer).toList();
-    var moduleFinder = ModuleFinder.of(explodedModulePath);
-    var mainModule = mainConfig.moduleName();
-    var layerConfig = Configuration.resolve(moduleFinder, parentLayers.stream().map(ModuleLayer::configuration).toList(), ModuleFinder.of(), Set.of(mainModule));
-    var layer = ModuleLayer.defineModulesWithOneLoader(layerConfig, parentLayers, classLoader).layer();
+    var moduleFinder = ModuleFinder.of(modulePath);
+    var mainModuleName = mainConfig.moduleName();
+    var layerConfig = Configuration.resolve(moduleFinder, parentLayers.stream().map(ModuleLayer::configuration).toList(), ModuleFinder.of(), Set.of(mainModuleName));
+    var layerController = ModuleLayer.defineModulesWithOneLoader(layerConfig, parentLayers, classLoader);
+    var layer = layerController.layer();
+
+    var mainPackage = mainConfig.className().substring(0, mainConfig.className().lastIndexOf("."));
+    var thisModule = getClass().getModule();
+    var mainModule = layer.findModule(mainModuleName).orElseThrow();
+    layerController.addOpens(mainModule, mainPackage, thisModule);
+    thisModule.addReads(mainModule);
     MethodHandle mh;
     try {
-      var clazz = layer.findLoader(mainModule).loadClass(mainConfig.className());
-      mh = MethodHandles.publicLookup().findStatic(clazz, "main", MethodType.methodType(void.class, String[].class));
+      var clazz = layer.findLoader(mainModuleName).loadClass(mainConfig.className());
+      mh = MethodHandles.lookup()
+          .findStatic(clazz, "main", MethodType.methodType(void.class, String[].class));
     } catch (ClassNotFoundException | NoSuchMethodException | IllegalAccessException e) {
       throw new RuntimeException(e);
     }

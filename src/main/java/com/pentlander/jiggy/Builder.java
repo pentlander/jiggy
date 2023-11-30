@@ -69,6 +69,7 @@ public class Builder {
     var fileObjects = fileManager.getJavaFileObjectsFromPaths(filePaths);
 
     var options = new ArrayList<String>();
+    options.add("-g");
     options.add("-d");
     var classOutputPath = outputPath.resolve("classes");
     options.add(classOutputPath.toString());

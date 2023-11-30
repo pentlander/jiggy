@@ -9,7 +9,9 @@ public class Main {
   public static void main(String[] args) throws Exception {
     var projectPath = Path.of("/home/alex/projects/feed4j");
     var buildConfig = readBuildConfig(projectPath);
-    var result = new Builder(buildConfig).build(projectPath.resolve("src"), Path.of("out"));
+    var outputPath = Path.of("out");
+    var result = new Builder(buildConfig).build(projectPath.resolve("src"), outputPath);
+    new Packager().packageJar(buildConfig.pkgConfig(), buildConfig.main(), result.classOutputPath(), outputPath);
 
     new LayeredRunner().run(buildConfig.main(), result.classOutputPath(), result.dependencyInfoSet());
   }
