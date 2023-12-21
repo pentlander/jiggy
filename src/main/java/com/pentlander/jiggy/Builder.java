@@ -4,19 +4,25 @@ import com.pentlander.jiggy.BuildConfig.DependencyDesc.Extended;
 import com.pentlander.jiggy.ModuleDep.ModuleName.Explicit;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.FileVisitOption;
 import java.nio.file.FileVisitResult;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.nio.file.SimpleFileVisitor;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Objects;
 import java.util.Set;
 import javax.tools.Diagnostic;
 import javax.tools.Diagnostic.Kind;
 import javax.tools.DiagnosticListener;
+import javax.tools.JavaFileManager.Location;
 import javax.tools.JavaFileObject;
+import javax.tools.StandardLocation;
 import javax.tools.ToolProvider;
 
 public class Builder {
@@ -42,30 +48,24 @@ public class Builder {
     var compileModulePaths = new ArrayList<String>();
     Files.createDirectories(compileModulesPath);
     for (var depInfo : depInfoSet) {
-      var dep = depInfo.moduleDep();
-      var depPath = dep.jarFile().toPath();
+      var directDep = depInfo.moduleDep();
+      var depPath = directDep.jarFile().toPath();
       compileModulePaths.add(depPath.toString());
-      if (!(dep.moduleName() instanceof Explicit) && depInfo.dependencyDesc() instanceof Extended extendedDesc) {
+      if (!(directDep.moduleName() instanceof Explicit) && depInfo.dependencyDesc() instanceof Extended extendedDesc) {
         var exportDescs = Set.copyOf(extendedDesc.transitive());
-        dep.deps()
+        directDep.deps()
             .stream()
-            .filter(transitiveDep -> exportDescs.contains(transitiveDep.coordinate().versionless()))
-            .forEach(transitiveDep -> compileModulePaths.add(transitiveDep.jarFile().getPath()));
+            .filter(dep -> exportDescs.contains(dep.coordinate().versionless()))
+            .forEach(dep -> compileModulePaths.add(dep.jarFile().getPath()));
       }
       Files.copy(depPath, compileModulesPath.resolve(depPath.getFileName()), StandardCopyOption.REPLACE_EXISTING);
     }
 
 
-    var filePaths = new ArrayList<Path>();
-    Files.walkFileTree(sourcePath, new SimpleFileVisitor<>() {
-      @Override
-      public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) {
-        if (file.getFileName().toString().endsWith(".java")) {
-          filePaths.add(file);
-        }
-        return FileVisitResult.CONTINUE;
-      }
-    });
+    List<Path> filePaths;
+    try (var files = Files.walk(sourcePath)) {
+      filePaths = files.filter(path -> path.toString().endsWith(".java")).toList();
+    }
     var fileObjects = fileManager.getJavaFileObjectsFromPaths(filePaths);
 
     var options = new ArrayList<String>();
@@ -74,14 +74,23 @@ public class Builder {
     var classOutputPath = outputPath.resolve("classes");
     options.add(classOutputPath.toString());
     options.add("--module-path");
-//    options.add(deps.stream().map(dep -> dep.jarFile().getPath()).collect(Collectors.joining(":")));
     options.add(String.join(":", compileModulePaths));
     var task = compiler.getTask(null, fileManager, new DiagListener(), options, null, fileObjects);
     if (!task.call()) {
       throw new RuntimeException("Failed to compile.");
     }
 
+    addLayeredRunner(classOutputPath);
     return new Result(classOutputPath, depInfoSet);
+  }
+
+  private void addLayeredRunner(Path outputPath) throws IOException {
+    var resourcePath = Paths.get(LayeredRunner.class.getName().replace('.', '/') + ".class");
+    var classFileBytes = Objects.requireNonNull(getClass().getClassLoader()
+        .getResourceAsStream(resourcePath.toString())).readAllBytes();
+    var filePath = outputPath.resolve(resourcePath);
+    Files.createDirectories(filePath.getParent());
+    Files.write(outputPath.resolve(resourcePath), classFileBytes);
   }
 
   public record Result(Path classOutputPath, Set<DependencyInfo> dependencyInfoSet) {}
