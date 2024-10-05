@@ -13,4 +13,7 @@ module com.pentlander.jiggy {
   requires java.net.http;
 
   exports com.pentlander.jiggy;
+  exports com.pentlander.jiggy.project;
+  exports com.pentlander.jiggy.run;
+  exports com.pentlander.jiggy.dep;
 }

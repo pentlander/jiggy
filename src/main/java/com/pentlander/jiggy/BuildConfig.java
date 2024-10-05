@@ -8,13 +8,14 @@ import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
 import com.fasterxml.jackson.databind.jsontype.TypeDeserializer;
 import com.pentlander.jiggy.BuildConfig.DependencyDesc.Coordinate;
 import com.pentlander.jiggy.BuildConfig.DependencyDesc.Extended;
+import com.pentlander.jiggy.dep.DependencyCoordinate;
 import java.io.IOException;
 import java.util.List;
 
 public record BuildConfig(@JsonProperty("package") PackageConfig pkgConfig, MainConfig main, DependenciesConfig dependencies) {
   public record PackageConfig(String name, String version, String description, String javaVersion) {}
   public record MainConfig(@JsonProperty("module") String moduleName, @JsonProperty("class") String className) {}
-  public record DependenciesConfig(List<DependencyDesc> compile, List<DependencyDesc> test) {}
+  public record DependenciesConfig(List<DependencyDesc> compile, List<DependencyDesc> test, List<DependencyDesc> build) {}
 
   @JsonDeserialize(using = DependencyDescDeserializer.class)
   public sealed interface DependencyDesc {

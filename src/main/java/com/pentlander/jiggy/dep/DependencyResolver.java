@@ -1,8 +1,8 @@
-package com.pentlander.jiggy;
+package com.pentlander.jiggy.dep;
 
-import com.pentlander.jiggy.ModuleDep.ModuleName;
-import com.pentlander.jiggy.ModuleDep.ModuleName.Automatic;
-import com.pentlander.jiggy.ModuleDep.ModuleName.NonModular;
+import com.pentlander.jiggy.dep.ModuleDep.ModuleName;
+import com.pentlander.jiggy.dep.ModuleDep.ModuleName.Automatic;
+import com.pentlander.jiggy.dep.ModuleDep.ModuleName.NonModular;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.lang.module.ModuleDescriptor;
@@ -29,7 +29,7 @@ public class DependencyResolver {
   private final LocalRepository localRepo = new LocalRepository("local-repo");
 
   public ModuleDep resolve(DependencyCoordinate depCoordinate) {
-    var resolvingArtifact = new DefaultArtifact(depCoordinate.groupId(), depCoordinate.artifactId(), "jar", depCoordinate.version());
+    var resolvingArtifact = new DefaultArtifact(depCoordinate.groupId(), depCoordinate.artifactId(), depCoordinate.extension(), depCoordinate.version());
     var repoSystem = newRepoSystem();
     var session = newSession(repoSystem);
 
@@ -42,17 +42,21 @@ public class DependencyResolver {
       for (var artifactResult : dependencyResult.getArtifactResults()) {
         var artifact = artifactResult.getArtifact();
         var file = artifact.getFile();
-        try (var jar = new JarFile(file)) {
-          var moduleName = moduleName(jar);
-          if (moduleName instanceof NonModular) {
-            System.out.println("Not a modular jar");
-          }
+        if (file.getName().endsWith("jar")) {
+          try (var jar = new JarFile(file)) {
+            var moduleName = moduleName(jar);
+            if (moduleName instanceof NonModular) {
+              System.out.println("Not a modular jar");
+            }
 
-          var coordinate = new DependencyCoordinate(
-              artifact.getGroupId(),
-              artifact.getArtifactId(),
-              artifact.getVersion());
-          moduleDeps.add(new ModuleDep(coordinate, moduleName, file));
+            var coordinate = new DependencyCoordinate(
+                artifact.getGroupId(),
+                artifact.getArtifactId(),
+                artifact.getExtension(),
+                artifact.getClassifier(),
+                artifact.getVersion());
+            moduleDeps.add(new ModuleDep(coordinate, moduleName, file));
+          }
         }
       }
 
@@ -66,6 +70,7 @@ public class DependencyResolver {
   }
 
   private static ModuleName moduleName(JarFile jar) {
+    // If it's a modular jar, read the module descriptor from the module info
     var moduleInfoEntry = jar.getJarEntry("module-info.class");
     if (moduleInfoEntry != null) {
       try {
@@ -77,6 +82,7 @@ public class DependencyResolver {
     }
 
     try {
+      // Otherwise try to read the jar manifest and get the automatic module name
       var manifest = jar.getManifest();
       if (manifest == null) {
         return new NonModular();

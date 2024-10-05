@@ -2,18 +2,29 @@ package com.pentlander.jiggy;
 
 import com.fasterxml.jackson.databind.PropertyNamingStrategies;
 import com.fasterxml.jackson.dataformat.toml.TomlMapper;
+import com.pentlander.jiggy.run.LayeredRunner;
 import java.io.IOException;
 import java.nio.file.Path;
+import java.util.List;
+import java.util.Objects;
 
 public class Main {
   public static void main(String[] args) throws Exception {
-    var projectPath = Path.of("/home/alex/projects/feed4j");
+    var projectPath = Path.of("/Users/alex/projects/feed4j");
     var buildConfig = readBuildConfig(projectPath);
     var outputPath = Path.of("out");
-    var result = new Builder(buildConfig).build(projectPath.resolve("src"), outputPath);
-    new Packager().packageJar(buildConfig.pkgConfig(), buildConfig.main(), result.classOutputPath(), outputPath);
+    var sourcePath = projectPath.resolve("src");
 
-    new LayeredRunner().run(buildConfig.main(), result.classOutputPath(), result.dependencyInfoSet());
+    var buildDeps = Objects.requireNonNullElse(buildConfig.dependencies().build(), List.<BuildConfig.DependencyDesc>of());
+//    var buildScriptRunner = new BuildScriptRunner(buildConfig.pkgConfig().name(), buildDeps, sourcePath, outputPath);
+//    buildScriptRunner.resolveBuildScript();
+
+    var result = new Builder(buildConfig).build(sourcePath, outputPath);
+    var jarPath = new JarPackager().packageJar(buildConfig.pkgConfig(), buildConfig.main(), result.classOutputPath(), outputPath);
+    new ApplicationPackager().packageApplication(buildConfig.pkgConfig(), jarPath, outputPath, result.dependencyInfoSet());
+
+    var mainConfig = buildConfig.main();
+    new LayeredRunner().run(mainConfig.moduleName(), mainConfig.className(), result.classOutputPath(), result.modulePaths(), args);
   }
 
   private static BuildConfig readBuildConfig(Path projectPath) throws IOException {

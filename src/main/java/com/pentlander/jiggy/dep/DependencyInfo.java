@@ -1,4 +1,4 @@
-package com.pentlander.jiggy;
+package com.pentlander.jiggy.dep;
 
 import com.pentlander.jiggy.BuildConfig.DependencyDesc;
 
