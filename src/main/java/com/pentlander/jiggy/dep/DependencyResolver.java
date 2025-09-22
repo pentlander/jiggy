@@ -1,5 +1,6 @@
 package com.pentlander.jiggy.dep;
 
+import com.pentlander.jiggy.BuildConfig.DependencyDesc;
 import com.pentlander.jiggy.dep.ModuleDep.ModuleName;
 import com.pentlander.jiggy.dep.ModuleDep.ModuleName.Automatic;
 import com.pentlander.jiggy.dep.ModuleDep.ModuleName.NonModular;
@@ -7,7 +8,9 @@ import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.lang.module.ModuleDescriptor;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.jar.JarFile;
 import org.apache.maven.repository.internal.MavenRepositorySystemUtils;
 import org.eclipse.aether.RepositorySystem;
@@ -20,6 +23,7 @@ import org.eclipse.aether.repository.RemoteRepository;
 import org.eclipse.aether.resolution.DependencyRequest;
 import org.eclipse.aether.resolution.DependencyResolutionException;
 import org.eclipse.aether.supplier.RepositorySystemSupplier;
+import org.eclipse.aether.util.graph.visitor.PreorderNodeListGenerator;
 
 public class DependencyResolver {
   private final List<RemoteRepository> repos = List.of(
@@ -28,41 +32,60 @@ public class DependencyResolver {
   private final RepositorySystemSupplier repoSystemSupplier = new RepositorySystemSupplier();
   private final LocalRepository localRepo = new LocalRepository("local-repo");
 
-  public ModuleDep resolve(DependencyCoordinate depCoordinate) {
-    var resolvingArtifact = new DefaultArtifact(depCoordinate.groupId(), depCoordinate.artifactId(), depCoordinate.extension(), depCoordinate.version());
+  public Map<DependencyDesc, ModuleDep> resolve(List<DependencyDesc> depDescs) {
     var repoSystem = newRepoSystem();
     var session = newSession(repoSystem);
 
-    var dependency = new Dependency(resolvingArtifact, null);
-    var collectRequest = new CollectRequest(dependency, repos);
+    var dependencies = depDescs.stream().map(desc -> {
+      var coord = desc.coordinate();
+      var resolvingArtifact = new DefaultArtifact(coord.groupId(), coord.artifactId(), coord.extension(), coord.version());
+      return new Dependency(resolvingArtifact, null);
+    }).toList();
+    var collectRequest = new CollectRequest(dependencies, List.of(), repos);
     var dependencyRequest = new DependencyRequest(collectRequest, null);
+    var resultModDeps = new LinkedHashMap<DependencyDesc, ModuleDep>();
     try {
-      var moduleDeps = new ArrayList<ModuleDep>();
       var dependencyResult = repoSystem.resolveDependencies(session, dependencyRequest);
-      for (var artifactResult : dependencyResult.getArtifactResults()) {
-        var artifact = artifactResult.getArtifact();
-        var file = artifact.getFile();
-        if (file.getName().endsWith("jar")) {
-          try (var jar = new JarFile(file)) {
-            var moduleName = moduleName(jar);
-            if (moduleName instanceof NonModular) {
-              System.out.println("Not a modular jar");
-            }
 
-            var coordinate = new DependencyCoordinate(
-                artifact.getGroupId(),
-                artifact.getArtifactId(),
-                artifact.getExtension(),
-                artifact.getClassifier(),
-                artifact.getVersion());
-            moduleDeps.add(new ModuleDep(coordinate, moduleName, file));
+      var directDepNodes = dependencyResult.getRoot().getChildren();
+      for (int i = 0; i < directDepNodes.size(); i++) {
+        var depNode = directDepNodes.get(i);
+        var moduleDeps = new ArrayList<ModuleDep>();
+        var listGen = new PreorderNodeListGenerator();
+        depNode.accept(listGen);
+        var artifacts = listGen.getArtifacts(false);
+        for (var artifact : artifacts) {
+          var file = artifact.getFile();
+          if (file.getName().endsWith("jar")) {
+            try (var jar = new JarFile(file)) {
+              var moduleName = moduleName(jar);
+              if (moduleName instanceof NonModular) {
+                System.out.println("Not a modular jar");
+              }
+
+              var coordinate = new DependencyCoordinate(
+                  artifact.getGroupId(),
+                  artifact.getArtifactId(),
+                  artifact.getExtension(),
+                  artifact.getClassifier(),
+                  artifact.getVersion());
+              moduleDeps.add(new ModuleDep(coordinate, moduleName, file));
+            }
           }
         }
+        var resolvedModuleDep = moduleDeps.getFirst();
+        var deps =
+            moduleDeps.size() > 1 ? moduleDeps.subList(1, moduleDeps.size()) : List.<ModuleDep>of();
+        var depDesc = depDescs.get(i);
+        var modDep = new ModuleDep(
+            depDesc.coordinate(),
+            resolvedModuleDep.moduleName(),
+            resolvedModuleDep.jarFile(),
+            deps);
+        resultModDeps.put(depDesc, modDep);
       }
 
-      var resolvedModuleDep = moduleDeps.getFirst();
-      var deps = moduleDeps.size() > 1 ? moduleDeps.subList(1, moduleDeps.size()) : List.<ModuleDep>of();
-      return new ModuleDep(depCoordinate, resolvedModuleDep.moduleName(), resolvedModuleDep.jarFile(), deps);
+      return resultModDeps;
     } catch (IOException | DependencyResolutionException e) {
       System.err.println(e);
       throw new RuntimeException(e);

@@ -2,11 +2,9 @@ package com.pentlander.jiggy;
 
 import com.fasterxml.jackson.databind.PropertyNamingStrategies;
 import com.fasterxml.jackson.dataformat.toml.TomlMapper;
-import com.pentlander.jiggy.run.LayeredRunner;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.List;
-import java.util.Objects;
 
 public class Main {
   public static void main(String[] args) throws Exception {
@@ -15,16 +13,18 @@ public class Main {
     var outputPath = Path.of("out");
     var sourcePath = projectPath.resolve("src");
 
-    var buildDeps = Objects.requireNonNullElse(buildConfig.dependencies().build(), List.<BuildConfig.DependencyDesc>of());
-//    var buildScriptRunner = new BuildScriptRunner(buildConfig.pkgConfig().name(), buildDeps, sourcePath, outputPath);
-//    buildScriptRunner.resolveBuildScript();
-
     var result = new Builder(buildConfig).build(sourcePath, outputPath);
     var jarPath = new JarPackager().packageJar(buildConfig.pkgConfig(), buildConfig.main(), result.classOutputPath(), outputPath);
-    new ApplicationPackager().packageApplication(buildConfig.pkgConfig(), jarPath, outputPath, result.dependencyInfoSet());
-
     var mainConfig = buildConfig.main();
-    new LayeredRunner().run(mainConfig.moduleName(), mainConfig.className(), result.classOutputPath(), result.modulePaths(), args);
+    var packager = new ApplicationPackager(outputPath);
+    var pkgResult = packager.packageDeps(result.dependencyInfoSet().values());
+
+    var javaBinPath = ProcessHandle.current().info().command().orElseThrow();
+    var modulePath = jarPath + ":" + pkgResult.depModulePath();
+    var handle =
+        new ProcessBuilder(List.of(javaBinPath, "--module-path", modulePath, "--module",
+            mainConfig.moduleName() + "/" + mainConfig.className())).inheritIO().start();
+    System.exit(handle.waitFor());
   }
 
   private static BuildConfig readBuildConfig(Path projectPath) throws IOException {
