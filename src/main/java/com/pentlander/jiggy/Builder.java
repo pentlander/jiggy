@@ -2,7 +2,6 @@ package com.pentlander.jiggy;
 
 import com.pentlander.jiggy.BuildConfig.DependencyDesc;
 import com.pentlander.jiggy.BuildConfig.DependencyDesc.Extended;
-import com.pentlander.jiggy.dep.DependencyInfo;
 import com.pentlander.jiggy.dep.DependencyResolver;
 import com.pentlander.jiggy.dep.ModuleDep;
 import com.pentlander.jiggy.dep.ModuleDep.ModuleName.Explicit;
@@ -34,14 +33,9 @@ public class Builder {
 
   Result build(Path sourcePath, Path outputPath) throws IOException {
     var compiler = ToolProvider.getSystemJavaCompiler();
-    var fileManager = compiler.getStandardFileManager(null, null, StandardCharsets.UTF_8);
 
     var depResolver = new DependencyResolver();
     var depInfoSet = depResolver.resolve(dependencyDescs);
-//    for (var dependency : dependencyDescs) {
-//      var moduleDep = depResolver.resolve(dependency.coordinate());
-//      depInfoSet.add(new DependencyInfo(dependency, moduleDep));
-//    }
 
     var modulesPath = outputPath.resolve("modules");
     var compileModulesPath = modulesPath.resolve("compile");
@@ -67,11 +61,12 @@ public class Builder {
     try (var files = Files.walk(sourcePath)) {
       filePaths = files.filter(path -> path.toString().endsWith(".java")).toList();
     }
+    var fileManager = compiler.getStandardFileManager(null, null, StandardCharsets.UTF_8);
     var fileObjects = fileManager.getJavaFileObjectsFromPaths(filePaths);
 
     var options = new ArrayList<String>();
-    options.add("-g");
-    options.add("-d");
+    options.add("-g"); // Generate debug info
+    options.add("-d"); // Specify where to place generated class files
     var classOutputPath = outputPath.resolve("classes");
     options.add(classOutputPath.toString());
     options.add("--module-path");

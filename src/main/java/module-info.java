@@ -11,8 +11,11 @@ module com.pentlander.jiggy {
 
   requires java.compiler;
   requires java.net.http;
+  requires info.picocli;
 
   exports com.pentlander.jiggy;
   exports com.pentlander.jiggy.project;
   exports com.pentlander.jiggy.dep;
+
+  opens com.pentlander.jiggy to info.picocli;
 }

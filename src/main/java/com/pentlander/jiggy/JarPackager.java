@@ -14,11 +14,17 @@ import java.util.jar.JarOutputStream;
 import java.util.jar.Manifest;
 
 public class JarPackager {
+  private final String version;
+
+  public JarPackager(String version) {
+    this.version = version;
+  }
+
   Path packageJar(PackageConfig pkgConfig, MainConfig mainConfig, Path explodedModulePath, Path outputPath) throws IOException {
     var manifest = new Manifest();
     var mainAttrs = manifest.getMainAttributes();
     mainAttrs.put(Name.MANIFEST_VERSION, "1.0");
-    mainAttrs.put(new Name("Created-By"), "jiggy-packager:0.1");
+    mainAttrs.put(new Name("Created-By"), "jiggy-packager:" + version);
     mainAttrs.put(Name.MAIN_CLASS, mainConfig.className());
 
     var jarPath = outputPath.resolve("%s-%s.jar".formatted(pkgConfig.name(), pkgConfig.version()));
