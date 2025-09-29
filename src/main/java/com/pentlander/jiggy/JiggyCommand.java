@@ -6,7 +6,11 @@ import com.fasterxml.jackson.databind.PropertyNamingStrategies;
 import com.fasterxml.jackson.dataformat.toml.TomlMapper;
 import com.pentlander.jiggy.JiggyCommand.Run;
 import java.io.IOException;
+import java.nio.file.FileVisitResult;
+import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.SimpleFileVisitor;
+import java.nio.file.attribute.BasicFileAttributes;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.Callable;
@@ -49,25 +53,60 @@ public class JiggyCommand implements Runnable {
     public Integer call() throws Exception {
       var projectPath = parent.projectPath;
       var buildConfig = parent.readBuildConfig();
+      var pkgConfig = buildConfig.pkgConfig();
 
       var sourcePath = projectPath.resolve("src");
       var outputPath = projectPath.resolve("out");
       var result = new Builder(buildConfig).build(sourcePath, outputPath);
-      var jarPath = new JarPackager(CLI_VERSION).packageJar(buildConfig.pkgConfig(), buildConfig.main(),
+      var jarPath = new JarPackager(CLI_VERSION).packageJar(pkgConfig, buildConfig.main(),
           result.classOutputPath(), outputPath);
-      var mainConfig = buildConfig.main();
-      var packager = new ApplicationPackager(outputPath);
+      var packager = new ApplicationPackager(jarPath, outputPath);
       var pkgResult = packager.packageDeps(result.dependencyInfoSet().values());
+      var javaBinPath = packager.createImage();
+      var mainConfig = buildConfig.main();
+      packager.createLaunchScript(pkgConfig.name(), mainConfig);
 
-      var javaBinPath = ProcessHandle.current().info().command().orElseThrow();
       var modulePath = jarPath + ":" + pkgResult.depModulePath();
-      var javaCmd = List.of(javaBinPath, "--module-path", modulePath, "--module",
+      var javaCmd = List.of(javaBinPath.toString(), "--module-path", modulePath, "--module",
           mainConfig.moduleName() + "/" + mainConfig.className());
 
       var cmd = new ArrayList<>(javaCmd);
       cmd.addAll(parameters);
 
       return new ProcessBuilder(cmd).inheritIO().start().waitFor();
+    }
+  }
+
+  @Command(name = "clean", description = "Build and run the application")
+  public static class Clean implements Callable<Integer> {
+    @ParentCommand
+    JiggyCommand parent;
+
+    @Override
+    public Integer call() throws Exception {
+      var projectPath = parent.projectPath;
+      deleteDir(projectPath.resolve("out"));
+      return 0;
+    }
+
+    private static void deleteDir(Path dirPath) throws IOException {
+      Files.walkFileTree(dirPath, new SimpleFileVisitor<>() {
+        @Override
+        public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) throws IOException {
+          Files.delete(file);
+          return FileVisitResult.CONTINUE;
+        }
+
+        @Override
+        public FileVisitResult postVisitDirectory(Path dir, IOException e) throws IOException {
+          if (e == null) {
+            Files.delete(dir);
+            return FileVisitResult.CONTINUE;
+          } else {
+            throw e;
+          }
+        }
+      });
     }
   }
 }
